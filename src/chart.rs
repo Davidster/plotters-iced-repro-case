@@ -1,5 +1,4 @@
-use iced_widget::Row;
-use iced_winit::core::{Element, Length};
+use iced_winit::Length;
 use plotters::{
     prelude::PathElement,
     series::LineSeries,
@@ -56,15 +55,10 @@ impl Chart<Message> for MyBasicChart {
 }
 
 impl MyBasicChart {
-    pub fn view(&self) -> Element<Message, iced_wgpu::Renderer<iced::theme::Theme>> {
-        let _chart: ChartWidget<'_, Message, iced_wgpu::Renderer<iced::theme::Theme>, &Self> =
-            ChartWidget::new(self)
-                .width(Length::Fixed(400.0))
-                .height(Length::Fixed(300.0));
-        // fails if you uncomment this
-        // let element: Element<Message, iced_wgpu::Renderer<iced::theme::Theme>> =
-        //     Element::new(_chart);
-
-        Row::new().into()
+    pub fn view(&self) -> iced::Element<Message> {
+        ChartWidget::new(self)
+            .width(Length::Fixed(400.0))
+            .height(Length::Fixed(300.0))
+            .into()
     }
 }

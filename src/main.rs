@@ -5,17 +5,11 @@ mod scene;
 use controls::Controls;
 use scene::Scene;
 
-use iced_wgpu::graphics::Viewport;
-use iced_wgpu::{wgpu, Backend, Renderer, Settings};
-use iced_winit::core::mouse;
-use iced_winit::core::renderer;
-use iced_winit::core::{Color, Size};
-use iced_winit::runtime::program;
-use iced_winit::runtime::Debug;
-use iced_winit::style::Theme;
-use iced_winit::{conversion, futures, winit, Clipboard};
+use iced_wgpu::{wgpu, Backend, Renderer, Settings, Viewport};
+use iced_winit::{conversion, futures, program, renderer, winit, Clipboard, Color, Debug, Size};
 
 use winit::{
+    dpi::PhysicalPosition,
     event::{Event, ModifiersState, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
 };
@@ -38,9 +32,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|win| win.document())
             .and_then(|doc| doc.get_element_by_id("iced_canvas"))
             .and_then(|element| element.dyn_into::<HtmlCanvasElement>().ok())
-            .expect("Get canvas element")
+            .expect("Canvas with id `iced_canvas` is missing")
     };
-
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
 
@@ -60,7 +53,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         Size::new(physical_size.width, physical_size.height),
         window.scale_factor(),
     );
-    let mut cursor_position = None;
+    let mut cursor_position = PhysicalPosition::new(-1.0, -1.0);
     let mut modifiers = ModifiersState::default();
     let mut clipboard = Clipboard::connect(&window);
 
@@ -76,13 +69,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         backends: backend,
         ..Default::default()
     });
+
     let surface = unsafe { instance.create_surface(&window) }?;
 
-    let (format, (device, queue)) = futures::futures::executor::block_on(async {
+    let (format, (device, queue)) = futures::executor::block_on(async {
         let adapter =
             wgpu::util::initialize_adapter_from_env_or_default(&instance, backend, Some(&surface))
                 .await
-                .expect("Create adapter");
+                .expect("No suitable GPU adapters found on the system!");
 
         let adapter_features = adapter.features();
 
@@ -99,8 +93,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             capabilities
                 .formats
                 .iter()
+                .filter(|format| format.describe().srgb)
                 .copied()
-                .find(wgpu::TextureFormat::is_srgb)
+                .next()
                 .or_else(|| capabilities.formats.first().copied())
                 .expect("Get preferred format"),
             adapter
@@ -132,13 +127,16 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut resized = false;
 
+    // Initialize staging belt
+    let mut staging_belt = wgpu::util::StagingBelt::new(5 * 1024);
+
     // Initialize scene and GUI controls
     let scene = Scene::new(&device, format);
     let controls = Controls::new();
 
     // Initialize iced
     let mut debug = Debug::new();
-    let mut renderer = Renderer::new(Backend::new(&device, &queue, Settings::default(), format));
+    let mut renderer = Renderer::new(Backend::new(&device, Settings::default(), format));
 
     let mut state =
         program::State::new(controls, viewport.logical_size(), &mut renderer, &mut debug);
@@ -152,7 +150,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             Event::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::CursorMoved { position, .. } => {
-                        cursor_position = Some(position);
+                        cursor_position = position;
                     }
                     WindowEvent::ModifiersChanged(new_modifiers) => {
                         modifiers = new_modifiers;
@@ -179,12 +177,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // We update iced
                     let _ = state.update(
                         viewport.logical_size(),
-                        cursor_position
-                            .map(|p| conversion::cursor_position(p, viewport.scale_factor()))
-                            .map(mouse::Cursor::Available)
-                            .unwrap_or(mouse::Cursor::Unavailable),
+                        conversion::cursor_position(cursor_position, viewport.scale_factor()),
                         &mut renderer,
-                        &Theme::Dark,
+                        &iced_wgpu::Theme::Dark,
                         &renderer::Style {
                             text_color: Color::WHITE,
                         },
@@ -247,9 +242,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                         renderer.with_primitives(|backend, primitive| {
                             backend.present(
                                 &device,
-                                &queue,
+                                &mut staging_belt,
                                 &mut encoder,
-                                None,
                                 &view,
                                 primitive,
                                 &viewport,
@@ -258,6 +252,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                         });
 
                         // Then we submit the work
+                        staging_belt.finish();
                         queue.submit(Some(encoder.finish()));
                         frame.present();
 
@@ -265,13 +260,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                         window.set_cursor_icon(iced_winit::conversion::mouse_interaction(
                             state.mouse_interaction(),
                         ));
+
+                        // And recall staging buffers
+                        staging_belt.recall();
                     }
                     Err(error) => match error {
                         wgpu::SurfaceError::OutOfMemory => {
-                            panic!(
-                                "Swapchain error: {error}. \
-                                Rendering cannot continue."
-                            )
+                            panic!("Swapchain error: {error}. Rendering cannot continue.")
                         }
                         _ => {
                             // Try rendering again next frame.

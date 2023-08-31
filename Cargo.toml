@@ -5,10 +5,12 @@ edition = "2021"
 
 [dependencies]
 env_logger = "0.10.0"
-iced = "0.10.0"
-iced_wgpu = "0.11.1"
+iced = "0.9"
+iced_wgpu = "0.10"
 iced_widget = "0.1.3"
-iced_winit = "0.10.0"
+iced_winit = "0.9"
 log = "0.4.20"
-plotters = "0.3.5"
-plotters-iced = "0.9.0"
+plotters = { version = "0.3", default-features = false, features = [
+  "line_series",
+] }
+plotters-iced = "0.8"
