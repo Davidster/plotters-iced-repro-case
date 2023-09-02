@@ -56,15 +56,14 @@ impl Chart<Message> for MyBasicChart {
 }
 
 impl MyBasicChart {
-    pub fn view(&self) -> Element<Message, iced_wgpu::Renderer<iced::theme::Theme>> {
-        let _chart: ChartWidget<'_, Message, iced_wgpu::Renderer<iced::theme::Theme>, &Self> =
+    pub fn view(&self) -> Element<Message, iced::Renderer<iced::theme::Theme>> {
+        let _chart: ChartWidget<'_, Message, iced::Renderer<iced::theme::Theme>, &Self> =
             ChartWidget::new(self)
                 .width(Length::Fixed(400.0))
                 .height(Length::Fixed(300.0));
         // fails if you uncomment this
-        // let element: Element<Message, iced_wgpu::Renderer<iced::theme::Theme>> =
-        //     Element::new(_chart);
+        let element: Element<Message, iced::Renderer<iced::theme::Theme>> = Element::new(_chart);
 
-        Row::new().into()
+        element
     }
 }
